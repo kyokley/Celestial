@@ -1,0 +1,37 @@
+- name: "Setup Nginx"
+  hosts: '{{ target }}'
+  vars_prompt:
+    - name: HOSTNAME
+      prompt: Enter FQDN hostname
+      private: no
+      default: "{{ target }}"
+  tasks:
+    - name: Install Packages
+      become: yes
+      ansible.builtin.apt:
+        pkg:
+          - nginx
+          - snapd
+    - name: Update snapd
+      become: yes
+      shell:
+        cmd: |
+          snap install core
+          snap refresh core
+
+    - name: Install certbot
+      become: yes
+      shell:
+        cmd: |
+          snap install --classic certbot
+          ln -s /snap/bin/certbot /usr/bin/certbot || true
+
+    - name: Get and Install Certificates
+      become: yes
+      ansible.builtin.expect:
+        command: certbot --nginx
+        responses:
+          "(.*)Enter email address(.*):": 'kyokley2@gmail.com'
+          "\\(Y\\)es/\\(N\\)o: ": 'Y'
+          "(.*)Please enter the domain name\\(s\\) you would like on your certificate(.*):": "{{ HOSTNAME }}"
+        echo: yes

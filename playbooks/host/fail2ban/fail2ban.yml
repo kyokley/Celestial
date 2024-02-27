@@ -1,0 +1,39 @@
+- name: "Setup fail2ban"
+  hosts: '{{ target }}'
+  tasks:
+    - name: Install Packages
+      become: yes
+      ansible.builtin.apt:
+        pkg:
+          - fail2ban
+        update_cache: yes
+
+    - name: Write jail.local
+      become: yes
+      ansible.builtin.copy:
+        src: ./jail.local
+        dest: /etc/fail2ban/jail.local
+
+    - name: Write jail.d
+      become: yes
+      ansible.builtin.copy:
+        src: ./jail.d
+        dest: /etc/fail2ban/
+
+    - name: Write filter.d
+      become: yes
+      ansible.builtin.copy:
+        src: ./filter.d
+        dest: /etc/fail2ban/
+
+    - name: Enable fail2ban service
+      become: yes
+      ansible.builtin.shell:
+        cmd: |
+          systemctl enable fail2ban
+
+    - name: Restart fail2ban service
+      become: yes
+      ansible.builtin.shell:
+        cmd: |
+          systemctl restart fail2ban

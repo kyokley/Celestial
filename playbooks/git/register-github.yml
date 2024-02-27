@@ -1,0 +1,54 @@
+---
+- name: Register host SSH key with GitHub
+  hosts: "{{ target }}"
+
+  vars:
+    github_user: "{{ github_user }}"
+    github_token: "{{ github_token }}"
+    ssh_key_type: "ed25519"
+    ssh_key_name: "id_{{ ssh_key_type }}"
+    ssh_key_comment: "{{ inventory_hostname }}"
+    ssh_key_passphrase: ""  # Set a passphrase here if desired
+    ssh_key_path: "{{ ansible_env.HOME }}/.ssh/{{ ssh_key_name }}"
+    ssh_known_hosts_path: "{{ ansible_env.HOME }}/.ssh/known_hosts"
+
+  tasks:
+    - name: Ensure SSH directory exists
+      file:
+        path: "{{ ansible_env.HOME }}/.ssh"
+        state: directory
+        mode: "0700"
+
+    - name: Ensure SSH known_hosts exists
+      file:
+        path: "{{ ssh_known_hosts_path }}"
+        state: touch
+        mode: "0600"
+
+    - name: Remove github.com from known_hosts
+      shell:
+        cmd: |
+            ssh-keygen -R github.com
+
+    - name: Add github.com keys to known_hosts
+      shell:
+        cmd: |
+            ssh-keyscan -H github.com | tee -a "{{ ssh_known_hosts_path }}"
+
+    - name: Generate SSH key pair
+      openssh_keypair:
+        path: "{{ ssh_key_path }}"
+        type: "{{ ssh_key_type }}"
+        comment: "{{ ssh_key_comment }}"
+        passphrase: "{{ ssh_key_passphrase }}"
+        state: present
+
+    - name: Get public key contents
+      command: "cat {{ ansible_env.HOME }}/.ssh/{{ ssh_key_name }}.pub"
+      register: pubkey
+
+    - name: Authorize key with GitHub
+      community.general.github_key:
+        name: "{{ inventory_hostname }}"
+        token: "{{ github_token }}"
+        pubkey: "{{ pubkey.stdout }}"

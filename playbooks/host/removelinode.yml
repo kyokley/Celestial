@@ -1,0 +1,28 @@
+---
+- name: Create Linode Instance
+  hosts: localhost
+  vars:
+      hostname: "{{ target }}"
+  tasks:
+    - name: Destroy a Linode instance
+      community.general.linode_v4:
+        access_token: "{{ linode_api_token }}"
+        label: "{{ hostname }}"
+        state: absent
+    - name: Read Vault Data
+      command: >-
+        ansible-vault view --vault-password-file "{{ inventory_dir }}/.vault-pass" "{{ inventory_dir }}/vault.yml"
+      no_log: true
+      register: cleartext
+    - name: Remove {{ hostname }} entry
+      command: >-
+        grep -v '{{ hostname }}_become_pass'
+      args:
+        stdin: "{{ cleartext.stdout }}"
+      no_log: true
+      register: filtered_data
+    - name: write data to file
+      command: >-
+        ansible-vault encrypt --vault-password-file "{{ inventory_dir }}/.vault-pass" --output "{{ inventory_dir }}/vault.yml"
+      args:
+        stdin: "{{ filtered_data.stdout }}"

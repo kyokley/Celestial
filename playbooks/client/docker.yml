@@ -1,0 +1,95 @@
+- name: "Setup Docker"
+  hosts: '{{ target }}'
+  vars:
+    reboot: yes
+  tasks:
+    - name: Install Packages
+      become: yes
+      ansible.builtin.apt:
+        pkg:
+          - docker
+          - docker-compose
+
+    - name: Add User to Docker Group
+      become: yes
+      shell:
+        cmd: |
+          adduser "{{ ansible_user_id }}" docker
+
+    - name: Configure Docker Service
+      become: yes
+      shell:
+        cmd: |
+          systemctl enable docker
+          systemctl start docker
+
+    - name: Reboot
+      become: yes
+      ansible.builtin.reboot:
+      when: reboot | bool
+
+    - name: Test Docker Service
+      shell:
+        cmd: |
+          docker run hello-world
+
+    - name: Update .bashrc
+      ansible.builtin.blockinfile:
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        marker: "# {mark} ANSIBLE MANAGED BLOCK (docker.yml)"
+        block: |
+            function git-absolute-path () {
+                fullpath=$([[ $1 = /* ]] && echo "$1" || echo "$PWD/${1#./}")
+                if [ $(git rev-parse --show-superproject-working-tree) ]
+                then
+                    gitroot="$(git rev-parse --show-superproject-working-tree)"
+                else
+                    gitroot="$(git rev-parse --show-toplevel)" || return 1
+                fi
+                [[ "$fullpath" =~ "$gitroot" ]] && echo "${fullpath/$gitroot\//}"
+            }
+
+            function dvim() {
+                xhost + >/dev/null
+                ROOT_HOME="/root"
+
+                GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+
+                if [ $? -eq 0 ]
+                then
+                    TITLE_ROOT="$GIT_ROOT"
+
+                    if [ $(git rev-parse --show-superproject-working-tree 2>/dev/null) ]
+                    then
+                        GIT_ROOT="$(git rev-parse --show-superproject-working-tree)"
+                    fi
+
+                    docker run \
+                        --rm -it \
+                        -e DISPLAY=unix$DISPLAY \
+                        -v /tmp/.X11-unix:/tmp/.X11-unix \
+                        -v "$GIT_ROOT":/files \
+                        -v "$HOME"/.vimbackup:"$ROOT_HOME"/.vimbackup \
+                        -v "$HOME"/.vimswap:"$ROOT_HOME"/.vimswap \
+                        -v "$HOME"/.vimundodir:"$ROOT_HOME"/.vimundodir \
+                        -v "$HOME"/.vimviews:"$ROOT_HOME"/.vimviews \
+                        -v "$HOME"/.local/share/nvim/shada:"$ROOT_HOME"/.shada \
+                        kyokley/neovim-custom \
+                        -i "$ROOT_HOME"/.shada/dvim_main.shada \
+                        --cmd "let g:git_root = \"${TITLE_ROOT}\"" \
+                        $(
+                                for file in $@
+                                do
+                                    echo $(git-absolute-path "$file")
+                                done
+                            )
+                else
+                    docker run \
+                        --rm -it \
+                        -e DISPLAY=unix$DISPLAY \
+                        -v /tmp/.X11-unix:/tmp/.X11-unix \
+                        -v $(pwd):/files \
+                        kyokley/neovim-custom \
+                        "$@"
+                fi
+            }

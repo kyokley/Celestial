@@ -1,0 +1,23 @@
+- hosts: "{{ target }}"
+  become: yes
+  vars_prompt:
+    - name: HOSTNAME
+      prompt: Enter FQDN hostname
+      private: no
+      default: "{{ target }}"
+    - name: CA_URL
+      prompt: Enter CA URL
+      private: no
+      default: "{{ ca_url }}"
+  tasks:
+    - name: Remove Host from CA
+      become: yes
+      shell: |
+        STEPPATH=/etc/step-ca step ca provisioner remove "{{ HOSTNAME }}" \
+            --ca-config=/etc/step-ca/config/ca.json
+      delegate_to: lynx
+
+    - name: Restart Step-CA
+      become: yes
+      shell: systemctl restart step-ca
+      delegate_to: lynx

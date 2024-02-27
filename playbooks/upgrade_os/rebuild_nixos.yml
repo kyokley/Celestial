@@ -1,0 +1,15 @@
+- hosts: '{{ target }}'
+  tasks:
+  - name: Clone NixOS Config Repo
+    ansible.builtin.git:
+      repo: 'ssh://git@venus.ftpaccess.cc:10022/kyokley/nixos-config.git'
+      dest: "{{ ansible_env.HOME }}/nixos-config"
+  - name: Symlink hardware-configuration.nix
+    shell:
+      cmd: |
+        ln -s "/etc/nixos/hardware-configuration.nix" "{{ ansible_env.HOME }}/nixos-config/" || true
+  - name: Build Configuration
+    become: yes
+    shell:
+      cmd: |
+        nixos-rebuild -I nixos-config="{{ ansible_env.HOME }}/nixos-config/configuration.nix" switch

@@ -1,0 +1,83 @@
+---
+- name: Install Tailscale
+  roles:
+    - kwoodson.yedit
+  hosts: "{{ target }}"
+  tasks:
+    - name: Set hostname
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+      become: yes
+
+    - name: Install Tailscale
+      include_role:
+        name: artis3n.tailscale
+      vars:
+        tailscale_up_skip: true
+
+    - name: Check Authentication Status
+      block:
+        - ansible.builtin.set_fact:
+            _auth_needed: false
+
+        - register: _status
+          changed_when: false
+          ansible.builtin.command:
+            argv:
+              - 'tailscale'
+              - 'status'
+              - '--json'
+
+        - when: _fields.BackendState == "NeedsLogin"
+          ansible.builtin.set_fact:
+            _auth_needed: true
+          vars:
+            _fields: "{{ _status.stdout | from_json }}"
+
+    - name: Authenticate If Needed
+      when: _auth_needed
+      block:
+        - name: Generate Tailscale Authentication Key
+          ansible.builtin.uri:
+            url: "https://api.tailscale.com/api/v2/tailnet/{{ tailscale_tailnet }}/keys"
+            user: "{{ tailscale_api_token }}"
+            method: POST
+            body:
+              capabilities:
+                devices:
+                  create:
+                    reusable: false
+                    ephemeral: true
+                    tags:
+                      - "tag:server"
+              expirySeconds: 300
+            force_basic_auth: true
+            body_format: json
+            return_content: yes
+          register: authkey_response
+
+        - name: Configure Tailscale
+          include_role:
+            name: artis3n.tailscale
+          vars:
+            tailscale_args: "--accept-routes --ssh"
+            tailscale_authkey: "{{ authkey_response.json.key }}"
+
+    - name: Update Inventory With New Hostname
+      yedit:
+        src: "{{ inventory_file }}"
+        key: all.hosts.{{ inventory_hostname }}.ansible_host
+        value: "{{ inventory_hostname }}"
+      delegate_to: localhost
+
+    - name: Remove "{{ inventory_hostname }}" from known_hosts
+      shell:
+        cmd: |
+            ssh-keygen -R "{{ inventory_hostname }}"
+      delegate_to: localhost
+
+    - name: Add "{{ inventory_hostname }}" keys to known_hosts
+      shell:
+        cmd: |
+            ssh-keyscan -H "{{ inventory_hostname }}" | tee -a "{{ lookup('env', 'HOME') }}/.ssh/known_hosts"
+      delegate_to: localhost

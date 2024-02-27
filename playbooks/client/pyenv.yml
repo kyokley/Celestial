@@ -1,0 +1,77 @@
+- name: "Setup Pyenv"
+  hosts: '{{ target }}'
+  vars:
+    py3: 3.11.1
+  tasks:
+    - name: Install Packages
+      become: yes
+      ansible.builtin.apt:
+        pkg:
+          - make
+          - build-essential
+          - git
+          - libssl-dev
+          - zlib1g-dev
+          - libbz2-dev
+          - libreadline-dev
+          - libsqlite3-dev
+          - wget
+          - curl
+          - llvm
+          - libncurses5-dev
+          - libncursesw5-dev
+          - xz-utils
+          - tk-dev
+          - python3-pip
+        update_cache: yes
+    - name: Checkout pyenv
+      ansible.builtin.git:
+        repo: 'https://github.com/pyenv/pyenv.git'
+        dest: "{{ ansible_env.HOME }}/.pyenv"
+    - name: Checkout pyenv-virtualenv
+      ansible.builtin.git:
+        repo: 'https://github.com/pyenv/pyenv-virtualenv.git'
+        dest: "{{ ansible_env.HOME }}/.pyenv/plugins/pyenv-virtualenv"
+    - name: Checkout pyenv-update
+      ansible.builtin.git:
+        repo: 'https://github.com/pyenv/pyenv-update.git'
+        dest: "{{ ansible_env.HOME }}/.pyenv/plugins/pyenv-update"
+    - name: Checkout pyenv-default-packages
+      ansible.builtin.git:
+        repo: 'https://github.com/jawshooah/pyenv-default-packages.git'
+        dest: "{{ ansible_env.HOME }}/.pyenv/plugins/pyenv-default-packages"
+    - name: Define default pyenv packages
+      shell:
+        cmd: |
+          cat <<EOF >> "{{ ansible_env.HOME }}/.pyenv/default-packages"
+          pdbpp
+          bpython
+          wheel
+          pynvim
+          pyflakes
+          flake8
+          bandit
+          jedi
+          poetry
+          EOF
+          cat "{{ ansible_env.HOME }}/.pyenv/default-packages" | sort -u | tee "{{ ansible_env.HOME }}/.pyenv/default-packages"
+    - name: Install Python and Environments
+      shell:
+        cmd: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          eval "$(pyenv virtualenv-init -)"
+
+          pyenv install -f "{{ py3 }}"
+
+          pyenv global "{{ py3 }}"
+          pip install pip --upgrade
+
+    - name: Update .bashrc
+      ansible.builtin.blockinfile:
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        marker: "# {mark} ANSIBLE MANAGED BLOCK (pyenv.yml)"
+        block: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          eval "$(pyenv virtualenv-init -)"

@@ -1,0 +1,15 @@
+- hosts: "{{ target }}"
+  tasks:
+    - name: Generate SSH Key
+      community.crypto.openssh_keypair:
+        path: "{{ ansible_env.HOME }}/.ssh/id_ed25519"
+        type: "ed25519"
+        regenerate: "never"
+      register: "ssh_key"
+    - name: Add Key
+      ansible.builtin.uri:
+        url: "https://{{ gogs_domain }}/api/v1/user/keys?token={{ gogs_token }}"
+        method: POST
+        body_format: json
+        body: '{"title": "{{ target }}", "key": "{{ ssh_key.public_key }}"}'
+        status_code: [200, 201]

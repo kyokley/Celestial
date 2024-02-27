@@ -1,0 +1,175 @@
+- hosts: "{{ target }}"
+  vars_prompt:
+    - name: ARCHITECTURE
+      prompt: Install Architecture
+      private: no
+      default: amd64
+    - name: STEPCLI_VERSION
+      prompt: Step CLI Version
+      private: no
+      default: 0.20.0
+    - name: CA_URL
+      prompt: Enter CA URL
+      private: no
+      default: "{{ ca_url }}"
+    - name: CA_FINGERPRINT
+      prompt: Enter CA Fingerprint
+      private: no
+      default: "{{ ca_fingerprint }}"
+    - name: HOSTNAME
+      prompt: Enter FQDN hostname
+      private: no
+      default: "{{ target }}"
+
+  tasks:
+    - name: Install APT Packages
+      become: yes
+      ansible.builtin.apt:
+        pkg:
+          - python3-pip
+        update_cache: yes
+
+    - name: Install Python Packages
+      become: yes
+      shell: pip3 install pexpect
+
+    - name: Download Step installer
+      get_url:
+        url: "https://github.com/smallstep/cli/releases/download/v{{ STEPCLI_VERSION }}/step-cli_{{ STEPCLI_VERSION }}_{{ ARCHITECTURE }}.deb"
+        dest: /tmp/step.deb
+      when: ansible_distribution == 'Debian' or ansible_distribution == 'Ubuntu'
+
+    - name: Install Step
+      become: yes
+      shell: dpkg -i /tmp/step.deb
+      when: ansible_distribution == 'Debian' or ansible_distribution == 'Ubuntu'
+
+    - name: Register New Host With CA
+      become: yes
+      shell: |
+        STEPPATH=/etc/step-ca step ca provisioner add "{{ HOSTNAME }}" \
+            --ca-config=/etc/step-ca/config/ca.json \
+            --ssh \
+            --create \
+            --password-file=/etc/step-ca/password.txt
+      delegate_to: lynx
+
+    - name: Restart Step-CA
+      become: yes
+      shell: systemctl restart step-ca
+      delegate_to: lynx
+
+    - name: Generate JWE Token
+      become: yes
+      shell: |
+        STEPPATH=/etc/step-ca step ca token "{{ HOSTNAME }}" \
+            --ssh \
+            --host \
+            --provisioner "{{ HOSTNAME }}" \
+            --ca-config=/etc/step-ca/config/ca.json \
+            --ca-url "{{ CA_URL }}" \
+            --password-file=/etc/step-ca/password.txt
+      register: token
+      delegate_to: lynx
+
+    - name: Bootstrap CA
+      become: yes
+      ansible.builtin.expect:
+        command: step ca bootstrap --ca-url "{{ CA_URL }}" --fingerprint "{{ CA_FINGERPRINT }}"
+        responses:
+          "(.*)Would you like to overwrite(.*)": "y"
+
+    - name: Configure Step
+      become: yes
+      shell: step ssh config --roots > $(step path)/certs/ssh_user_key.pub
+
+    - name: Get Host Certificate
+      become: yes
+      ansible.builtin.expect:
+        command: step ssh certificate "{{ HOSTNAME }}" /etc/ssh/ssh_host_ecdsa_key.pub --host --sign --provisioner "{{ HOSTNAME }}" --principal "{{ HOSTNAME }}" --token "{{ token.stdout }}"
+        responses:
+          "(.*)Would you like to overwrite(.*)": "y"
+
+    - name: Configure sshd
+      become: yes
+      shell:
+        cmd: |
+          grep 'SSH CA Configuration' /etc/ssh/sshd_config && \
+            exit 0 || \
+          tee -a /etc/ssh/sshd_config > /dev/null <<EOF
+          # SSH CA Configuration
+
+          # This is the CA's public key, for authenticatin user certificates:
+          TrustedUserCAKeys $(step path)/certs/ssh_user_key.pub
+
+          # This is our host private key and certificate:
+          HostKey /etc/ssh/ssh_host_ecdsa_key
+          HostCertificate /etc/ssh/ssh_host_ecdsa_key-cert.pub
+          AuthorizedPrincipalsFile %h/.ssh/authorized_principals
+          EOF
+
+    - name: Create Rotate SSH Certs Script
+      become: yes
+      shell:
+        cmd: |
+          cat <<EOF > /usr/local/bin/rotate_ssh_certs.sh
+          #!/bin/sh
+
+          cd /etc/ssh
+          STEPPATH=/root/.step step ssh renew ssh_host_ecdsa_key-cert.pub ssh_host_ecdsa_key --force 2> /dev/null
+
+          exit 0
+          EOF
+          chmod 755 /usr/local/bin/rotate_ssh_certs.sh
+
+    - name: Create Cert Rotation Service
+      become: yes
+      shell:
+        cmd: |
+          cat <<EOF > /etc/systemd/system/rotate_ssh_certs.service
+          [Unit]
+          Description=Renew SSH Cert
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/rotate_ssh_certs.sh
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+    - name: Create Cert Rotation Timer
+      become: yes
+      shell:
+        cmd: |
+          cat <<EOF > /etc/systemd/system/rotate_ssh_certs.timer
+          [Unit]
+          Description=Rotate SSH certs weekly
+
+          [Timer]
+          OnCalendar=weekly
+          Persistent=true
+          Unit=rotate_ssh_certs.service
+
+          [Install]
+          WantedBy=timers.target
+          EOF
+
+    - name: Configure systemctl
+      become: yes
+      shell:
+        cmd: |
+          systemctl enable rotate_ssh_certs.timer
+          systemctl start rotate_ssh_certs.timer
+
+          systemctl restart sshd
+
+    - name: Write authorized_principals file
+      shell:
+        cmd: |
+          grep kyokley2 "{{ ansible_env.HOME }}/.ssh/authorized_principals" && \
+            exit 0 || \
+          cat <<EOF >> "{{ ansible_env.HOME }}/.ssh/authorized_principals"
+          kyokley2
+          kyokley2@gmail.com
+          EOF

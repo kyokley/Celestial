@@ -1,0 +1,80 @@
+---
+- name: Create Linode Instance
+  hosts: localhost
+  roles:
+    - kwoodson.yedit
+  vars_prompt:
+    - name: hostname
+      prompt: "Name of new host"
+      private: no
+    - name: host_type
+      prompt: "Type of host (https://api.linode.com/v4/linode/types/)"
+      private: no
+      default: "g6-nanode-1"
+    - name: os_image
+      prompt: "Host image (https://api.linode.com/v4/images/)"
+      private: no
+      default: "linode/ubuntu23.04"
+    - name: host_region
+      prompt: "Host region (https://api.linode.com/v4/regions)"
+      private: no
+      default: "us-east"
+    - name: root_password
+      prompt: "Root Password for new host"
+      private: yes
+  tasks:
+    - name: Create a Linode instance
+      community.general.linode_v4:
+        access_token: "{{ linode_api_token }}"
+        label: "{{ hostname }}"
+        type: "{{ host_type }}"
+        region: "{{ host_region }}"
+        image: "{{ os_image }}"
+        root_pass: "{{ root_password }}"
+        authorized_keys:
+          - "{{ lookup('ansible.builtin.file', '~/.ssh/id_ed25519.pub') }}"
+        state: present
+      register: linode_result
+
+    - name: Wait 60 secs for Linode instance to be ready
+      local_action:
+        module: wait_for
+        host: "{{ linode_result.instance.ipv4[0] }}"
+        port: 22
+        search_regex: OpenSSH
+        delay: 60
+        timeout: 300
+        state: started
+
+    - name: Print IP address of new host
+      debug:
+        var: linode_result.instance.ipv4[0]
+
+    - name: Update Inventory With New Host IP
+      yedit:
+        src: "{{ inventory_file }}"
+        key: all.hosts.{{ hostname }}.ansible_host
+        value: "{{ linode_result.instance.ipv4[0] }}"
+
+    - name: Update Inventory With New Hostname Password
+      yedit:
+        src: "{{ inventory_file }}"
+        key: all.hosts.{{ hostname }}.ansible_become_pass
+        value: "'{{ '{{' }} {{ hostname }}_become_pass {{ '}}' }}'"
+
+    - name: Read Vault Data
+      command: >-
+        ansible-vault view --vault-password-file "{{ inventory_dir }}/.vault-pass" "{{ inventory_dir }}/vault.yml"
+      no_log: true
+      register: cleartext
+
+    - name: update user1 password
+      set_fact:
+        newtext: "{{ cleartext.stdout }}\n{{ hostname }}_become_pass: {{ root_password }}"
+      no_log: true
+
+    - name: write data to file
+      command: >-
+        ansible-vault encrypt --vault-password-file "{{ inventory_dir }}/.vault-pass" --output "{{ inventory_dir }}/vault.yml"
+      args:
+        stdin: "{{ newtext }}"

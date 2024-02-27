@@ -1,0 +1,82 @@
+- name: "Setup Neovim"
+  hosts: '{{ target }}'
+  vars:
+    py3: 3.11.1
+  tasks:
+    - name: Install Packages
+      become: yes
+      ansible.builtin.apt:
+        pkg:
+          - automake
+          - build-essential
+          - curl
+          - exuberant-ctags
+          - fzf
+          - git
+          - libbz2-dev
+          - libncurses5-dev
+          - libncursesw5-dev
+          - libreadline-dev
+          - libsqlite3-dev
+          - libssl-dev
+          - llvm
+          - make
+          - neovim
+          - python3-pip
+          - tk-dev
+          - wget
+          - xclip
+          - xz-utils
+          - zlib1g-dev
+
+    - name: Set Neovim Alternatives
+      become: yes
+      shell:
+        cmd: |
+          update-alternatives --install /usr/bin/vi vi /usr/bin/nvim 60
+          update-alternatives --install /usr/bin/vim vim /usr/bin/nvim 60
+          update-alternatives --install /usr/bin/editor editor /usr/bin/nvim 60
+
+    - name: Checkout ctags
+      ansible.builtin.git:
+        repo: 'https://github.com/universal-ctags/ctags.git'
+        dest: /tmp/ctags
+
+    - name: Install ctags
+      become: yes
+      shell:
+        cmd: |
+          ./autogen.sh
+          ./configure
+          make
+          make install
+      args:
+        chdir: /tmp/ctags
+
+    - name: Install pyenv virtualenv
+      shell:
+        cmd: |
+          /bin/bash -ic 'pyenv install -f "{{ py3 }}" &&
+                         pyenv virtualenv-delete -f neovim3 &&
+                         pyenv virtualenv -f "{{ py3 }}" neovim3 &&
+                         pyenv shell neovim3 &&
+                         pip install pip --upgrade &&
+                         pip install python-language-server[all] neovim pip pyflakes flake8 bandit --upgrade'
+
+    - name: Git Checkout
+      ansible.builtin.git:
+        repo: git@github.com:kyokley/nvimRepo.git
+        dest: "{{ ansible_env.HOME }}/.nvim"
+
+    - name: Create nvim config
+      shell:
+        cmd: |
+          mkdir -p "{{ ansible_env.HOME }}/.config"
+          if [ ! -h "{{ ansible_env.HOME }}/.config/nvim" ]; then
+              ln -s "{{ ansible_env.HOME }}/.nvim" "{{ ansible_env.HOME }}/.config/nvim"
+          fi
+
+    - name: Install Neovim plugins
+      shell:
+        cmd: |
+          nvim +PlugInstall +qall

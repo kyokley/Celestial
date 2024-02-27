@@ -1,0 +1,51 @@
+---
+- name: Initialize a new machine
+  hosts: "{{ target }}"
+  remote_user: root
+  vars:
+    new_username: yokley
+  tasks:
+    # Create the new user
+    - name: Create new user
+      user:
+        name: "{{ new_username }}"
+        password: "{{ ansible_become_pass | password_hash('sha512') }}"
+        createhome: yes
+
+    # Add the new user to the sudo group
+    - name: Add user to sudo group
+      user:
+        name: "{{ new_username }}"
+        groups: sudo
+        append: yes
+
+    # Add an authorized SSH key for the new user
+    - name: Add authorized SSH key
+      authorized_key:
+        user: "{{ new_username }}"
+        key: "{{ lookup('ansible.builtin.file', '~/.ssh/id_ed25519.pub') }}"
+
+    # Disable root logins in the SSH server configuration
+    - name: Disable root login in sshd_config
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^PermitRootLogin"
+        line: "PermitRootLogin no"
+      notify:
+        - restart sshd
+
+    # Only allow public key authentication in the SSH server configuration
+    - name: Allow only public key authentication in sshd_config
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^PasswordAuthentication"
+        line: "PasswordAuthentication no"
+      notify:
+        - restart sshd
+
+  handlers:
+    # Restart the SSH service after changes to the sshd_config file
+    - name: restart sshd
+      service:
+        name: ssh
+        state: restarted

@@ -1,0 +1,22 @@
+- hosts: almagest
+  tasks:
+  - name: Backup DB
+    ansible.builtin.shell: make backup-db
+    args:
+      chdir: /home/yokley/workspace/MediaViewerProd
+  - name: Pull latest image
+    ansible.builtin.shell: make pull
+    args:
+      chdir: /home/yokley/workspace/MediaViewerProd
+  - name: Stop containers
+    ansible.builtin.shell: make down
+    args:
+      chdir: /home/yokley/workspace/MediaViewerProd
+  - name: Migrate DB
+    ansible.builtin.shell: make migrate
+    args:
+      chdir: /home/yokley/workspace/MediaViewerProd
+  - name: Bring up containers
+    ansible.builtin.shell: make up
+    args:
+      chdir: /home/yokley/workspace/MediaViewerProd

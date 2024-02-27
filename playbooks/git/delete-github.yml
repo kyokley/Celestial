@@ -1,0 +1,15 @@
+---
+- name: Delete GitHub SSH key
+  hosts: "{{ target }}"
+
+  vars:
+    github_user: "{{ github_user }}"
+    github_token: "{{ github_token }}"
+    ssh_key_name: "{{ target }}"
+
+  tasks:
+    - name: Delete GitHub key
+      community.general.github_key:
+        token: "{{ github_token }}"
+        name: "{{ ssh_key_name }}"
+        state: absent

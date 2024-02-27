@@ -1,0 +1,86 @@
+- name: "Install dotfiles"
+  hosts: '{{ target }}'
+  vars:
+    MANLOC: /usr/share/man/man1
+    the_user: "{{ ansible_user_id }}"
+  tasks:
+    - name: Install Packages
+      become: yes
+      ansible.builtin.apt:
+        pkg:
+          - zsh
+          - terminator
+          - fonts-inconsolata
+          - silversearcher-ag
+          - xscreensaver
+          - xscreensaver-screensaver-bsod
+          - direnv
+          - fonts-hack-ttf
+
+    - name: Checkout dotfiles
+      ansible.builtin.git:
+        repo: 'git@github.com:kyokley/dotfiles.git'
+        dest: "{{ ansible_env.HOME }}/dotfiles"
+
+    - name: Pull submodules
+      shell:
+        cmd: |
+          git submodule update --init --recursive
+      args:
+        chdir: "{{ ansible_env.HOME }}/dotfiles"
+
+    - name: Symlink psqlrc
+      shell:
+        cmd: |
+          mv "{{ ansible_env.HOME }}/.psqlrc" "{{ ansible_env.HOME }}/.psqlrc_bak" || true
+          ln -s "{{ ansible_env.HOME }}/dotfiles/psqlrc" "{{ ansible_env.HOME }}/.psqlrc"
+
+    - name: Symlink bashrc
+      shell:
+        cmd: |
+          mv "{{ ansible_env.HOME }}/.bashrc" "{{ ansible_env.HOME }}/.bashrc_bak" || true
+          ln -s "{{ ansible_env.HOME }}/dotfiles/bashrc" "{{ ansible_env.HOME }}/.bashrc"
+
+    - name: Symlink prezto
+      shell:
+        cmd: |
+          if [ ! -h "{{ ansible_env.HOME }}/.zprezto" ]; then
+            ln -s "{{ ansible_env.HOME }}/dotfiles/prezto" "{{ ansible_env.HOME }}/.zprezto"
+          fi
+
+          ln -s "{{ ansible_env.HOME }}/dotfiles/prezto/runcoms/zlogin" "{{ ansible_env.HOME }}/.zlogin" || true
+          ln -s "{{ ansible_env.HOME }}/dotfiles/prezto/runcoms/zlogout" "{{ ansible_env.HOME }}/.zlogout" || true
+          ln -s "{{ ansible_env.HOME }}/dotfiles/prezto/runcoms/zpreztorc" "{{ ansible_env.HOME }}/.zpreztorc" || true
+          ln -s "{{ ansible_env.HOME }}/dotfiles/prezto/runcoms/zprofile" "{{ ansible_env.HOME }}/.zprofile" || true
+
+    - name: Symlink zsh
+      shell:
+        cmd: |
+          if [ ! -h "{{ ansible_env.HOME }}/.zshrc" ]; then
+            ln -s "{{ ansible_env.HOME }}/dotfiles/prezto/runcoms/zshrc" "{{ ansible_env.HOME }}/.zshrc"
+            rm -f "{{ ansible_env.HOME }}/.zcompdump"
+          fi
+          ln -s "{{ ansible_env.HOME }}/dotfiles/prezto/runcoms/zshenv" "{{ ansible_env.HOME }}/.zshenv" || true
+
+    - name: Change User Shell to Zsh
+      become: yes
+      user:
+        name: "{{ the_user }}"
+        shell: /usr/bin/zsh
+
+    - name: Symlink terminator config
+      shell:
+        cmd: |
+          if [ ! -e "{{ ansible_env.HOME }}/.config/terminator" ]
+          then
+            mkdir "{{ ansible_env.HOME }}/.config/terminator"
+          fi
+
+          mv "{{ ansible_env.HOME }}/.config/terminator/config" "{{ ansible_env.HOME }}/.config/terminator/config_bak"
+          ln -s "{{ ansible_env.HOME }}/dotfiles/termConfig" "{{ ansible_env.HOME }}/.config/terminator/config" || true
+
+    - name: Symlink git config
+      shell:
+        cmd: |
+          mv "{{ ansible_env.HOME }}/.gitconfig"  "{{ ansible_env.HOME }}/.gitconfig_bak" || true
+          ln -s "{{ ansible_env.HOME }}/dotfiles/gitconfig" "{{ ansible_env.HOME }}/.gitconfig" || true

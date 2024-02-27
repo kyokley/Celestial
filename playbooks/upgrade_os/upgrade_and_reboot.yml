@@ -1,0 +1,20 @@
+- hosts: '{{ target }}'
+  vars:
+    upgrade: '{{ UPGRADE }}'
+    reboot: '{{ REBOOT }}'
+  tasks:
+  - name: Upgrade with apt
+    ansible.builtin.apt:
+      upgrade: safe
+      update_cache: yes
+    become: true
+    when: upgrade | bool
+  - name: Reboot
+    ansible.builtin.reboot:
+    become: true
+    when: reboot | bool
+  - name: Restart PPP
+    ansible.builtin.shell: sleep 30 && make restart
+    args:
+      chdir: ~/workspace/PPP
+    when: reboot | bool and (inventory_hostname == "singularity.thruhere.net" or inventory_hostname == "singularity")
